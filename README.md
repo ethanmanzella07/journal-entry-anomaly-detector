@@ -2,26 +2,30 @@
 
 This is a Python tool that runs standard audit analytical procedures on a real government payment dataset: the Texas Education Agency's Check Register for FY2025. It covers 61,775 transactions paid out to school districts and vendors across the state.
 
+Applied to this dataset, it flagged seven high-priority duplicate payment pairs worth follow-up, including a $1,249,104.08 payment to Texas Tech University that repeated within six days.
+
 ## What it does
 
 The script runs four checks that auditors actually use when reviewing a set of transactions:
 
-**Duplicate payment detection.** Flags any case where the same vendor got paid the same exact amount within 7 days. This is the classic test for double payments.
-
-**Round dollar analysis.** Flags payments that land on suspiciously round numbers, like $5,000 or $10,000. Real invoiced amounts are almost never that clean, so a lot of round numbers can point to estimates or manual overrides instead of actual invoices.
-
-**Weekend posting check.** Flags anything dated on a Saturday or Sunday, since that's unusual for normal payment processing.
-
-**Benford's Law.** A statistical test on the leading digit of every dollar amount. In naturally occurring financial data, the number 1 shows up as the first digit way more often than 9, and that pattern is predictable enough that big deviations from it can be a sign something's off.
+| Check | What it flags | Why it matters |
+|---|---|---|
+| **Duplicate payment detection** | Same vendor, same amount, paid within 7 days | The classic test for double payments |
+| **Round dollar analysis** | Payments landing on suspiciously round numbers, like $5,000 or $10,000 | Real invoiced amounts are almost never that clean, so round numbers can point to estimates or manual overrides instead of actual invoices |
+| **Weekend posting check** | Transactions dated on a Saturday or Sunday | Unusual for normal payment processing, can point to entries made outside standard controls |
+| **Benford's Law** | Statistical deviation in the leading digit of every dollar amount | Naturally occurring financial data follows a predictable digit pattern; big deviations can be worth a second look |
 
 ## What it found
 
-61,775 transactions came out clean after removing bad rows. Out of those:
+61,775 transactions came out clean after removing bad rows.
 
-- 62 pairs of transactions looked like potential duplicate payments
-- 1,780 transactions (about 2.9%) were round dollar amounts
-- Not a single transaction was posted on a weekend
-- The Benford's Law test showed a statistically significant deviation (p < 0.0001)
+| Metric | Result |
+|---|---|
+| Total transactions analyzed | 61,775 |
+| Potential duplicate payment pairs | 62 |
+| Round dollar transactions | 1,780 (2.9%) |
+| Weekend postings | 0 (0.00%) |
+| Benford's Law p-value | < 0.0001 (statistically significant deviation) |
 
 ### Going through the duplicates
 
@@ -51,7 +55,11 @@ One important caveat: this dataset only has vendor name, date, and amount, nothi
 
 The round dollar percentage (2.9%) is unremarkable on its own. Zero weekend postings is actually a good sign, it points to a tightly controlled, business-day-only payment process.
 
-The Benford's Law deviation is more interesting and probably comes down to how many recurring, fixed-amount payments are baked into this dataset. When the same vendor gets paid the exact same amount over and over, like the Comptroller's $50 and $435 charges, that skews the leading digit distribution away from what Benford's Law expects from naturally varied transaction data. It's a structural feature of this kind of dataset, not evidence that anything was manipulated.
+The Benford's Law deviation is more interesting and worth being specific about. The chi-square statistic came out to 99.60, and with 8 degrees of freedom (nine possible leading digits, minus one), the threshold for statistical significance at the standard 0.05 level is around 15.5. So this isn't a borderline result, it's roughly six times past the point where you'd call it significant, which is exactly why the p-value came back so extreme.
+
+That size of deviation is best explained by how many recurring, fixed-amount payments are baked into this dataset. When the same vendor gets paid the exact same amount over and over, like the Comptroller's $50 and $435 charges, that skews the leading digit distribution away from what Benford's Law expects from naturally varied transaction data. A strong deviation needs a strong explanation, and a dataset full of repeated fixed amounts by design, rather than organically varying invoice amounts, is a real and sufficient one. It's a structural feature of this kind of dataset, not evidence that anything was manipulated.
+
+![Benford's Law: observed vs. expected leading digit distribution](benford_chart.png)
 
 ## Running it yourself
 
@@ -89,6 +97,10 @@ The dataset's lack of invoice numbers or GL codes means this analysis is narrowe
 ## Why I built this
 
 I wanted something that actually demonstrates the kind of testing done in real audit engagements: journal entry testing, duplicate payment testing, fraud risk analytics like Benford's Law, applied to a real dataset instead of a toy one.
+
+## What's next
+
+I'm working on a Streamlit version of this tool that lets anyone upload their own spreadsheet, map their own column names, and run the same four checks, rather than it being tied to this one dataset.
 
 ## Built with
 
