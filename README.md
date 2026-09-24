@@ -1,114 +1,94 @@
-# Journal Entry Anomaly Detector
+Journal Entry Anomaly Detector
 
-Python tool that applies standard audit analytical procedures to a real,
-public government payment dataset — the [Texas Education Agency's Check
-Register (FY2025)](https://tea.texas.gov/about-tea/agency-finances/check-register/tea-check-register),
-covering 61,775 valid transactions paid to school districts and vendors
-statewide.
+This is a Python tool that runs standard audit analytical procedures on a real government payment dataset: the Texas Education Agency's Check Register for FY2025. It covers 61,775 transactions paid out to school districts and vendors across the state.
 
-## What it does
+What it does
 
-This project runs four analytical procedures commonly used in audit
-fieldwork to identify transactions warranting further review:
+The script runs four checks that auditors actually use when reviewing a set of transactions:
 
-| Check | What it flags | Why auditors run it |
-|---|---|---|
-| **Duplicate payment detection** | Same vendor, same amount, paid within 7 days | Classic double-payment / control failure test |
-| **Round-dollar analysis** | Payments that are suspiciously round ($X,000 or $X00) | Round numbers can indicate estimates or manual overrides rather than invoiced amounts |
-| **Weekend posting check** | Transactions dated on a Saturday or Sunday | Unusual timing can indicate manual entries outside normal processing controls |
-| **Benford's Law analysis** | Statistical deviation in the distribution of leading digits | A widely used fraud-detection heuristic — naturally occurring financial data follows a predictable digit pattern; large deviations warrant investigation |
+Duplicate payment detection. Flags any case where the same vendor got paid the same exact amount within 7 days. This is the classic test for double payments.
 
-## Results
+Round dollar analysis. Flags payments that land on suspiciously round numbers, like $5,000 or $10,000. Real invoiced amounts are almost never that clean, so a lot of round numbers can point to estimates or manual overrides instead of actual invoices.
 
-- **Total transactions analyzed:** 61,775
-- **Potential duplicate payment pairs flagged:** 62
-- **Round-dollar transactions:** 1,780 (2.9% of total)
-- **Weekend postings:** 0 (0.00% of total)
-- **Benford's Law chi-square p-value:** < 0.0001 (statistically significant deviation)
+Weekend posting check. Flags anything dated on a Saturday or Sunday, since that's unusual for normal payment processing.
 
-### Duplicate payment triage
+Benford's Law. A statistical test on the leading digit of every dollar amount. In naturally occurring financial data, the number 1 shows up as the first digit way more often than 9, and that pattern is predictable enough that big deviations from it can be a sign something's off.
 
-The 62 flagged pairs were manually reviewed and triaged into three tiers
-based on dollar amount and timing:
+What it found
 
-- **Red flag** (large dollar amount — roughly $50,000+ — OR same/next-day
-  repetition regardless of size): 8 pairs, including a $1,249,104.08
-  payment to Texas Tech University repeated within 6 days, and a
-  $420,685.65 payment to the State Office of Administrative Hearings
-  repeated the very next day.
-- **Yellow** (moderate, specific amounts with a several-day gap — worth a
-  note, not urgent): includes payments like Deer Oaks EAP Services
-  ($1,551.25, 2 days apart) and Lewisville ISD ($10,640, 7 days apart).
-- **Green** (small, recurring, or clearly routine): the majority of flagged
-  pairs — small individual reimbursements and standing recurring vendor
-  fees (e.g., Texas Comptroller of Public Accounts' repeated $50/$435
-  charges) that repeat by design, not by error.
+61,775 transactions came out clean after removing bad rows. Out of those:
 
-**Note on data limitations:** this dataset only contains vendor name,
-date, and gross amount — no invoice numbers, PO numbers, or department
-codes. The triage above reflects which transactions *warrant follow-up
-with underlying documentation*, not confirmed errors. A real audit team
-would pull invoice-level backup on the red-flagged items next.
+62 pairs of transactions looked like potential duplicate payments
+1,780 transactions (about 2.9%) were round dollar amounts
+Not a single transaction was posted on a weekend
+The Benford's Law test showed a statistically significant deviation (p < 0.0001)
+Going through the duplicates
 
-### Interpreting the other checks
+I went through all 62 flagged pairs by hand and sorted them into three tiers based on dollar amount and timing.
 
-- **Round-dollar (2.9%):** unremarkable — a small share of transactions
-  landing on round numbers is normal and not itself a red flag.
-- **Weekend postings (0%):** indicates a well-controlled, business-day-only
-  payment processing system — a positive control signal, not a gap.
-- **Benford's Law deviation:** the significant deviation is most likely
-  driven by the large number of *recurring, fixed-amount* payments in this
-  dataset (e.g., the Texas Comptroller's repeated $50 and $435 charges
-  visible in the duplicate-payment data above). Government payment
-  registers containing many standing/recurring charges naturally deviate
-  from Benford's expected distribution, which assumes organically varied
-  transaction amounts — this is a structural characteristic of the
-  dataset, not evidence of manipulation.
+Anything over roughly $50,000 got flagged as high priority regardless of timing. I also flagged same-day, next-day repeats as high priority even at a smaller dollar amount, since that kind of tight repetition can point to a processing error on its own, separate from the size of the payment. That said, I set a floor on that rule too. A next-day repeat of something like $12.84 isn't worth chasing just because the timing looks tight; it's almost certainly a routine split reimbursement, not a control failure. So the rule ended up being: flag as high priority if the amount is $50,000 or more, or if it repeats the very next day and is at least $1,000. A repeat two or more days apart, even at a meaningful dollar amount, went into the second tier instead, not the top one.
 
-## How to run it
+Seven pairs met that bar:
 
-1. Clone this repo and install dependencies:
-```bash
-   pip install -r requirements.txt
-```
-2. Download the dataset from TEA's website (not included in this repo due
-   to file size):
-      Save it in the project root as `25-cr-report.csv`.
-3. Run the analysis:
-```bash
-   python anomaly_detector.py
-```
-4. Outputs:
-   - `anomaly_summary.csv` — headline results table
-   - `flagged_duplicates.csv` — detail of flagged potential duplicate payments
-   - `benford_chart.png` — observed vs. expected leading-digit distribution
+Texas Tech University, $1,249,104.08, repeated within six days
+State Office of Administrative Hearings, $420,685.65, repeated the very next day
+Trademark Media Corporation, $69,988.55, repeated within a week
+Nederland ISD, $55,000, repeated within five days
+The Brumn Group, $3,040, repeated the very next day
+C & T Consulting Services, $3,344, repeated the very next day
+Texas Ass. (Texas Association of School Administrators), $1,170, repeated the very next day
 
-## Methodology notes
+That last one is a good example of the rule actually doing its job. A different payment to the same vendor for $485, also one day apart, stayed in the lower tier, since it falls under the $1,000 floor even with the tight timing. $1,170 clears it.
 
-- **Duplicate detection window:** 7 days was chosen as a reasonable
-  materiality threshold for "near-duplicate" timing — adjustable in the
-  script.
-- **Duplicate triage rule:** flagged as high priority if the amount is
-  roughly $50,000 or greater, OR if the repeat occurred within 1-2 days
-  regardless of amount — since same-day repetition is itself a control-
-  failure signal independent of dollar size.
-- **Benford's Law caveat:** this test works best on naturally occurring,
-  unconstrained transaction amounts. Government payments include many
-  recurring fixed amounts, which is a legitimate, explainable limitation
-  of applying this test to this type of dataset.
-- **Data source limitation:** the TEA register only contains vendor name,
-  date, and gross amount — no invoice numbers, GL account codes, or
-  approver info, so this analysis is necessarily narrower than a real
-  audit team's access to underlying ERP data.
+A second group covered moderate, specific dollar amounts with a slightly longer gap between them, things like a $1,551.25 payment to Deer Oaks EAP Services two days apart, or $10,640 to Lewisville ISD a week apart. Worth a note but not urgent.
 
-## Why this project
+Most of what got flagged fell into a third, low priority group: small individual reimbursements and recurring vendor charges that repeat by design, not by mistake. The Texas Comptroller's office shows up over and over with the same $50 and $435 charges, which is clearly a standing arrangement rather than an error.
 
-Built to demonstrate practical application of Python and data analytics
-to audit-style analytical procedures — the same category of testing
-performed in real Big 4 audit engagements (journal entry testing,
-duplicate payment testing, and fraud-risk analytics like Benford's Law),
-applied here to a real, publicly available government financial dataset.
+One important caveat: this dataset only has vendor name, date, and amount, nothing like invoice numbers or department codes. So this triage tells you which transactions are worth pulling documentation on, not which ones are confirmed problems. A real audit team would go get the backup on the high priority items next.
 
-## Tech stack
+The other checks
 
-Python, pandas, NumPy, SciPy (statistical testing), Matplotlib
+The round dollar percentage (2.9%) is unremarkable on its own. Zero weekend postings is actually a good sign, it points to a tightly controlled, business-day-only payment process.
+
+The Benford's Law deviation is more interesting and probably comes down to how many recurring, fixed-amount payments are baked into this dataset. When the same vendor gets paid the exact same amount over and over, like the Comptroller's $50 and $435 charges, that skews the leading digit distribution away from what Benford's Law expects from naturally varied transaction data. It's a structural feature of this kind of dataset, not evidence that anything was manipulated.
+
+Running it yourself
+
+Install the dependencies:
+
+bash
+pip install -r requirements.txt
+
+Download the dataset from TEA's site (it's too big to include in this repo):
+
+https://tea.texas.gov/about-tea/agency-finances/check-register/25-cr-report.csv
+
+Save it in the project folder as 25-cr-report.csv.
+
+Then run:
+
+bash
+python anomaly_detector.py
+
+It'll output three files:
+
+anomaly_summary.csv, the headline numbers
+flagged_duplicates.csv, the specific pairs that got flagged
+benford_chart.png, the observed vs expected digit distribution
+A few notes on methodology
+
+The 7 day window for duplicate detection is somewhat arbitrary and adjustable in the code. I picked it as a reasonable stand-in for close enough in time to worry about.
+
+For the triage, I used roughly $50,000 as the cutoff for flagging based on size alone, or a next-day repeat as a separate trigger for smaller amounts, as long as the amount was at least $1,000. Next-day repeats can point to a processing error even when the dollar amount is modest, but a next-day repeat of a few dollars isn't worth flagging the same way, and anything with a gap of two or more days needed to clear the size threshold on its own to be high priority.
+
+Benford's Law works best on transaction amounts that occur naturally and aren't constrained. Government payment data includes a lot of fixed recurring amounts, which is a real limitation of applying this test here, not a flaw in the test itself.
+
+The dataset's lack of invoice numbers or GL codes means this analysis is narrower than what a real audit team would have access to.
+
+Why I built this
+
+I wanted something that actually demonstrates the kind of testing done in real audit engagements: journal entry testing, duplicate payment testing, fraud risk analytics like Benford's Law, applied to a real dataset instead of a toy one.
+
+Built with
+
+Python, pandas, NumPy, SciPy, Matplotlib
